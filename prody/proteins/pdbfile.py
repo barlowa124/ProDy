@@ -579,6 +579,10 @@ def _parsePDBLines(atomgroup, lines, split, model, chain, subset,
     # `dec` is plain-decimal mode.  hexadecimal=True skips the auto-detection entirely, which is the only
     # way to read an all-digit hex field (e.g. '3039' = 12345), that being a valid decimal string too.
     dec = not hexadecimal
+    # hex_wrap records that dec was lost to a decimal-looking decrease off the overflow
+    # mark -- plain hex evidence ('2710' after 9999).  A chain restart in a hybrid-36
+    # file produces the same shape, so the recovery below must not fire in that case.
+    hex_wrap = False
     while i < stop:
         line = lines[i]
         startswith = line[0:6].strip()
@@ -716,8 +720,12 @@ def _parsePDBLines(atomgroup, lines, split, model, chain, subset,
                 # the int() ValueError above, whatever acount is.  An all-digit hex field such as '3039'
                 # (=12345) is indistinguishable from decimal 3039 on its own, so a decrease from a value
                 # >= MAX_N_RES remains the only available evidence.
-                if dec and acount >= 2 and resnums[acount-2] > resnum and resnums[acount-2] >= MAX_N_RES:
+                # the immediate predecessor must also sit at or above the overflow mark:
+                # after a decimal restart the atom two back can still be a hybrid-36 field,
+                # and a small resnum must not flip dec back off mid-chain
+                if dec and acount >= 2 and resnums[acount-2] > resnum and resnums[acount-2] >= MAX_N_RES and resnums[acount-1] >= MAX_N_RES:
                     dec = False
+                    hex_wrap = True
 
                 if not dec:
                     resnum = resnum_str
@@ -732,6 +740,12 @@ def _parsePDBLines(atomgroup, lines, split, model, chain, subset,
                             isnumeric = np.all([x.isdigit() or x==' ' for x in resnum_str])
                             if not isnumeric and resnum_str == resnum_str.upper():
                                 resnum = hybrid36ToDec(resnum_str, resnum=True)
+                            elif isnumeric and not hex_wrap and acount > 0 and int(resnum_str) < resnums[acount-1]:
+                                # plain-decimal field below the previous number: numbering
+                                # restarted (a new chain), as writePDB(hybrid36=True) emits.
+                                # Hex files only ever increase, so this cannot be hex.
+                                resnum = int(resnum_str)
+                                dec = True
                             else:
                                 # lower case is found in hexadecimal PDB files
                                 resnum = int(resnum_str, 16)

@@ -181,6 +181,29 @@ class TestParsePDB(unittest.TestCase):
         self.assertEqual(str(parsePDB(path).getResnums()[33107]),
              resnum, 'parsePDB failed to parse Hybrid36 resnum')
 
+    def testHybrid36DecimalRestart(self):
+        """Test parsing a hybrid-36 file where numbering restarts.
+
+        writePDB(hybrid36=True) restarts residue numbering per chain, so
+        plain-decimal fields can follow letter-encoded ones; these must
+        not be decoded as hexadecimal (#2273)."""
+
+        ag = prody.AtomGroup('restart')
+        ag.setCoords(np.zeros((7, 3)))
+        ag.setNames(['CA'] * 7)
+        ag.setResnames(['ALA'] * 7)
+        ag.setChids(['A'] * 4 + ['B'] * 3)
+        resnums = [9998, 9999, 10000, 10001, 16, 99, 100]
+        ag.setResnums(resnums)
+        ag.setElements(['C'] * 7)
+        ag.setSerials(np.arange(1, 8))
+
+        out = writePDB(os.path.join(TEMPDIR, 'h36_restart.pdb'),
+                       ag, hybrid36=True)
+        back = parsePDB(out)
+        assert_equal(back.getResnums(), resnums,
+            'parsePDB failed to read back its own hybrid-36 output')
+
     def testHexSerial(self):
         """Test parsing PDB files with hexadecimal serial numbers
         ('2710' is 10000)."""
